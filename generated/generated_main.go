@@ -11,6 +11,9 @@ import (
 // TODO: Some initialization of config???
 
 func main() {
+
+	controller = ControllerImpl{}
+
 	router := withMiddleware(withRoutes(mux.NewRouter()))
 	server := &http.Server{
 		// TODO: This should be configurable???
