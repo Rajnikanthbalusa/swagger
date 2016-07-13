@@ -11,11 +11,10 @@ import (
 // TODO: Some initialization of config???
 
 func main() {
-	router := mux.NewRouter()
-	router = withMiddleware(withRoutes(router))
+	router := withMiddleware(withRoutes(mux.NewRouter()))
 	server := &http.Server{
 		// TODO: This should be configurable???
-		Addr:    fmt.Sprintf(":80"),
+		Addr:    fmt.Sprintf(":8080"),
 		Handler: router,
 	}
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"strings"
 
 	"gopkg.in/yaml.v2"
 )
@@ -39,7 +40,7 @@ func (d SwaggerDefinition) Printf(g *Generator, name string) {
 	g.Printf("}\n\n")
 }
 
-type SwaggerPath struct {
+type SwaggerOperation struct {
 	OperationID string                     `yaml:"operationId"`
 	Description string                     `yaml:"description"`
 	Responses   map[string]SwaggerResponse `yaml:"responses"`
@@ -53,8 +54,12 @@ type SwaggerResponse struct {
 }
 
 type Swagger struct {
-	Definitions map[string]SwaggerDefinition      `yaml:"definitions"`
-	Paths       map[string]map[string]SwaggerPath `yaml:"paths"`
+	Definitions map[string]SwaggerDefinition           `yaml:"definitions"`
+	Paths       map[string]map[string]SwaggerOperation `yaml:"paths"`
+}
+
+func capitalize(input string) string {
+	return strings.ToUpper(input[0:1]) + input[1:]
 }
 
 func main() {
@@ -72,15 +77,19 @@ func main() {
 
 	fmt.Printf("Swagger: %+v\n", swagger)
 
-	buildTypes(swagger.Definitions)
-	buildRouter()
-	// TODO: Is this really the way I want to do this???
-	for _, pathObj := range swagger.Paths {
-		for _, responseObj := range pathObj {
-			buildContexts(responseObj.Responses)
-		}
+	if err := buildTypes(swagger.Definitions); err != nil {
+		panic(err)
 	}
-	buildHandlers()
+	if err := buildRouter(swagger.Paths); err != nil {
+		panic(err)
+	}
+	// TODO: Is this really the way I want to do this???
+	if err := buildContexts(swagger.Paths); err != nil {
+		panic(err)
+	}
+	if err := buildHandlers(swagger.Paths); err != nil {
+		panic(err)
+	}
 }
 
 type Generator struct {
@@ -93,7 +102,7 @@ func (g *Generator) Printf(format string, args ...interface{}) {
 
 // TODO: Add a nice comment!
 // TODO: Make this write out to a file...
-func buildTypes(definitions map[string]SwaggerDefinition) {
+func buildTypes(definitions map[string]SwaggerDefinition) error {
 
 	// TODO: Verify that the types are correct. In particular make sure they have the right references...
 
@@ -103,51 +112,111 @@ func buildTypes(definitions map[string]SwaggerDefinition) {
 	}
 
 	fmt.Printf(g.buf.String())
+
+	return ioutil.WriteFile("generated/types.go", g.buf.Bytes(), 0644)
 }
 
-func buildRouter() {
+func buildRouter(paths map[string]map[string]SwaggerOperation) error {
 	var g Generator
+
+	// TODO: Add something to all these about being auto-generated
+
 	g.Printf("package main\n\n")
-	g.Printf("import net/http\n\n")
-	g.Printf("func withRoutes(r *mux.Router) {\n")
+	g.Printf("import \"github.com/gorilla/mux\"\n\n")
+	g.Printf("func withRoutes(r *mux.Router) *mux.Router {\n")
 
-	// TODO: Note that this is coupled with the handler names...
-	g.Printf("r.Methods(\"%s\").Path(\"%s\").HandlerFunc(%s))\n", "GET", "/book/{id}", "getBookHandler")
-
-	g.Printf("}\n")
-
-}
-
-func buildContexts(responses map[string]SwaggerResponse) {
-	// This includes the interfaces...
-	var g Generator
-
-	// TODO: Create the Input type
-	// TODO: If params validate them (either from query, path or body) - this should probably be from the input type???
-
-	// TODO: How should I name these things???
-	g.Printf("type BooksIDController interface {\n")
-
-	// TODO: Can we return something better than an error?
-	g.Printf("\tGetBook(input BookIDInput) error\n")
+	for path, pathObj := range paths {
+		for method, op := range pathObj {
+			// TODO: Validate the method
+			// TODO: Note the coupling for the handler name here and in the handler function. Does that mean these should be
+			// together? Probably...
+			g.Printf("\tr.Methods(\"%s\").Path(\"%s\").HandlerFunc(%sHandler)\n",
+				strings.ToUpper(method), path, capitalize(op.OperationID))
+		}
+	}
+	// TODO: It's a bit weird that this returns a pointer that it modifies...
+	g.Printf("\treturn r\n")
 	g.Printf("}\n")
 
 	fmt.Printf(g.buf.String())
+	return ioutil.WriteFile("generated/router.go", g.buf.Bytes(), 0644)
 }
 
-func buildHandlers() {
+func buildContexts(paths map[string]map[string]SwaggerOperation) error {
+	// This includes the interfaces...
+	var g Generator
+
+	g.Printf("package main\n\n")
+
+	g.Printf("import (\n")
+	g.Printf("\t\"net/http\"\n")
+	g.Printf(")\n\n")
+
+	for _, path := range paths {
+		for _, op := range path {
+			// TODO: Should this be more functional??
+
+			g.Printf("type %sInput struct {\n", capitalize(op.OperationID))
+			// TODO: Add in input params...
+			g.Printf("}\n")
+
+			g.Printf("func New%sInput(r *http.Request) (*%sInput, error) {\n", capitalize(op.OperationID), capitalize(op.OperationID))
+			// TODO: This should take in the http.Request object probably so that it can get the request parameters from that
+			g.Printf("\treturn &%sInput{}, nil\n", capitalize(op.OperationID))
+			g.Printf("}\n")
+
+			g.Printf("func (i %sInput) Validate() error{\n", capitalize(op.OperationID))
+			// TODO: Add in any validation...
+			g.Printf("\treturn nil\n")
+			g.Printf("}\n")
+		}
+	}
+
+	// TODO: How should I name these things??? Should they be on a per-tag basis???
+	g.Printf("\ntype Controller interface {\n")
+
+	for _, path := range paths {
+		for _, op := range path {
+			g.Printf("\t%s(input %sInput) error\n", capitalize(op.OperationID), capitalize(op.OperationID))
+		}
+	}
+	g.Printf("}\n")
+
+	fmt.Printf(g.buf.String())
+	return ioutil.WriteFile("generated/contexts.go", g.buf.Bytes(), 0644)
+}
+
+func buildHandlers(paths map[string]map[string]SwaggerOperation) error {
 
 	var g Generator
-	// TODO: Don't hard-code getBookHandler
-	g.Printf("func %s {\n", "getBookHandler")
 
-	// Build a context object
-	// Check for an error
+	g.Printf("package main\n\n")
 
-	// For each parameter
-	// Validate (possibly recursively...)... maybe this should be built into a context handler...
+	g.Printf("import (\n")
+	g.Printf("\t\"net/http\"\n")
+	g.Printf(")\n\n")
 
-	// Build the context and
+	for _, path := range paths {
+		for _, op := range path {
+			g.Printf("func %sHandler(w http.ResponseWriter, r *http.Request) {\n", capitalize(op.OperationID))
+			g.Printf("\tinput, err := New%sInput(r)\n", capitalize(op.OperationID))
+			g.Printf("\tif err != nil {\n")
+			// TODO: Handle these errors better... by returning something... the default presumably?
+			g.Printf("\t\treturn\n")
+			g.Printf("\t}\n")
+			g.Printf("\terr = input.Validate()\n")
+			g.Printf("\tif err != nil {\n")
+			g.Printf("\t\treturn\n")
+			g.Printf("\t}\n")
 
-	g.Printf("}")
+			// TODO: Call the actual interface... Not sure quite how I want to instantiate this...
+			// TODO: Do something to handle the actual response
+
+			g.Printf("}\n")
+		}
+	}
+
+	fmt.Printf(g.buf.String())
+
+	return ioutil.WriteFile("generated/handlers.go", g.buf.Bytes(), 0644)
 }
