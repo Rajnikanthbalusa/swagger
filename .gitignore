@@ -22,3 +22,10 @@ _testmain.go
 *.exe
 *.test
 *.prof
+
+generated/contexts.go
+generated/handlers.go
+generated/types.go
+generated/router.go
+generated/controller.go
+generated/outputs.go
