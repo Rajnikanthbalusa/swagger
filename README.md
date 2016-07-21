@@ -5,8 +5,18 @@ Swagger test
 ```
 go run main.go
 cd generated
-go run generated_main.go middleware.go router.go handlers.go contexts.go controller.go
+go run main.go middleware.go router.go handlers.go contexts.go controller.go
 ```
+
+## After Generating
+
+### Main
+generated/main.go is a hard-coded file that implement the initial main functionality.
+
+### Files to Change
+- In controller.go implement the logic of your handlers.
+- In middleware.go add any middleware specific to your service
+
 
 ## Swagger Spec
 
